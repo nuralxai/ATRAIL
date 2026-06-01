@@ -1,0 +1,119 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: atrail_postgres_prod
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-atrail}
+    volumes:
+      - atrail_pgdata_prod:/var/lib/postgresql/data
+    networks:
+      - atrail_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: atrail_redis_prod
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - atrail_redisdata_prod:/data
+    networks:
+      - atrail_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      args:
+        - BUILD_ENV=production
+    container_name: atrail_api_prod
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: 4000
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-atrail}?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-gqM0Qd91NUXUfXy0lZ5g+4sXoH8C/V/Zz+sD4eBfF0p5gqKjM0Qd91NUXUfXy0lZ5g+4sXoH8C/V/Zz+sD4eBfF0p5gqKjM0Q}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-lZ5g+4sXoH8C/V/Zz+sD4eBfF0p5gqKjM0Qd91NUXUfXy0lZ5g+4sXoH8C/V/Zz+sD4eBfF0p5gqKjM0Qd91NUXUfXy0}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-MzJieXRlc2xvNmdzZWNyZXRsZW5ndGhrZXlzdHJpbmc=}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Kolkata}
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://localhost:8000}
+      VLLM_MODEL: ${VLLM_MODEL:-llama3.1-8b}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      NVIDIA_BASE_URL: ${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-}
+      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      LINEAR_PERSONAL_API_KEY: ${LINEAR_PERSONAL_API_KEY:-}
+      LINEAR_WEBHOOK_SECRET: ${LINEAR_WEBHOOK_SECRET:-}
+      LINEAR_CLIENT_ID: ${LINEAR_CLIENT_ID:-}
+      LINEAR_CLIENT_SECRET: ${LINEAR_CLIENT_SECRET:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+    ports:
+      - "9000:4000"
+    networks:
+      - atrail_network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: atrail_web_prod
+    restart: always
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:9000/api/v1}
+    ports:
+      - "9080:3000"
+    networks:
+      - atrail_network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  atrail_network:
+    driver: bridge
+
+volumes:
+  atrail_pgdata_prod:
+    driver: local
+  atrail_redisdata_prod:
+    driver: local

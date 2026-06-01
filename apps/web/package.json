@@ -1,0 +1,42 @@
+{
+  "name": "@amgi/web",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3002",
+    "build": "next build",
+    "start": "next start -p 3002",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@amgi/shared": "workspace:*",
+    "chart.js": "^4.5.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "firebase": "^12.11.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
+    "lucide-react": "^0.577.0",
+    "next": "^14.2.5",
+    "react": "^18.3.1",
+    "react-big-calendar": "^1.19.4",
+    "react-chartjs-2": "^5.3.1",
+    "react-d3-tree": "^3.6.6",
+    "react-dom": "^18.3.1",
+    "socket.io-client": "^4.8.3",
+    "zod": "^4.3.5",
+    "zustand": "^5.0.9"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/react": "^18.3.3",
+    "@types/react-big-calendar": "^1.16.3",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.23",
+    "postcss": "^8.5.6",
+    "tailwindcss": "3.4.17",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,48 @@
+# VCS
+.git
+.gitignore
+
+# Node modules (install in image)
+node_modules
+apps/**/node_modules
+packages/**/node_modules
+
+# Build outputs (rebuilt in image)
+dist
+build
+coverage
+.next
+apps/**/dist
+apps/**/build
+apps/web/.next
+
+# Environment and secrets
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs and uploads
+logs
+*.log
+apps/api/uploads
+
+# Editor/OS
+.vscode
+.DS_Store
+Thumbs.db
+
+# Tooling caches
+.turbo
+.vercel
+.cache
+tmp
+
+# Tests and development-only files
+**/*.test.*
+**/*.spec.*
+
+# Docker compose files not needed in build context
+docker-compose.override.yml

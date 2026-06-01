@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: amgi_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: amgi
+    ports:
+      - "5435:5432"
+    volumes:
+      - amgi_pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: amgi_redis
+    ports:
+      - "6378:6379"
+    volumes:
+      - amgi_redisdata:/data
+
+volumes:
+  amgi_pgdata:
+  amgi_redisdata:

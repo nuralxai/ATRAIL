@@ -1,0 +1,1584 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  GOD
+  DEVELOPER
+  SUPER_ADMIN
+  ADMIN
+  TENANT
+  ELITE
+  USER
+  INTERN
+}
+
+enum OrgType {
+  INTERNAL
+  RESELLER
+  CLIENT
+}
+
+enum BillingStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum ProjectMemberRole {
+  HEAD
+  MEMBER
+}
+
+enum TaskStatus {
+  ASSIGNED
+  IN_PROGRESS
+  SUBMITTED
+  ACCEPTED
+  REJECTED
+}
+
+enum SubmissionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum ConversationType {
+  DIRECT
+  PROJECT
+}
+
+enum EmergencyStatus {
+  ACTIVE
+  RESOLVED
+  CANCELLED
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+}
+
+enum OAuthProvider {
+  GOOGLE
+  MICROSOFT
+  JIRA
+  LINEAR
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+// Renewal OS Enums
+enum RenewalStatus {
+  DRAFT
+  QUOTED
+  NEGOTIATING
+  CLOSED
+  CANCELLED
+}
+
+enum ChurnRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ReminderCadence {
+  AGGRESSIVE
+  BALANCED
+  GENTLE
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  PARTIAL
+}
+
+enum CommissionStatus {
+  ACCRUED
+  PAID
+  PENDING
+}
+
+model Invoice {
+  id             String        @id @default(cuid())
+  organizationId String
+  createdById    String
+  invoiceNumber  String        @unique
+  clientName     String
+  clientEmail    String?
+  items          String        // JSON array of {description, qty, rate}
+  subtotal       Float
+  tax            Float
+  total          Float
+  status         InvoiceStatus @default(DRAFT)
+  dueDate        DateTime?
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  createdBy    User         @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+
+  @@index([organizationId, createdAt])
+}
+
+model Milestone {
+  id             String   @id @default(cuid())
+  organizationId String
+  projectId      String?
+  title          String
+  description    String?
+  dueDate        DateTime
+  completed      Boolean  @default(false)
+  completedAt    DateTime?
+  createdById    String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  project      Project?     @relation(fields: [projectId], references: [id])
+  createdBy    User         @relation("MilestoneCreatedBy", fields: [createdById], references: [id])
+
+  @@index([organizationId, dueDate])
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  logoUrl   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // SaaS billing & access control
+  orgType           OrgType       @default(INTERNAL)
+  billingStatus     BillingStatus @default(ACTIVE)
+  billingDueDate    DateTime?
+  billingAmount     Float?
+  billingNote       String?
+  billingUpdatedAt  DateTime?
+  billingUpdatedBy  String?       // userId of GOD/DEVELOPER who last touched this
+  trialEndsAt       DateTime?
+  planName          String?       @default("Starter")
+
+  users         User[]
+  projects      Project[]
+  notices       Notice[]
+  emergencies   EmergencyEvent[]
+  conversations Conversation[]
+  notifications Notification[]
+  documents     Document[]
+
+  // Calendar & Recurring Tasks
+  calendarEvents CalendarEvent[]
+  recurringTasks RecurringTask[]
+
+  // Phase 3: Asset & License Management
+  branches            Branch[]
+  departments         Department[]
+  vendors             Vendor[]
+  assets              Asset[]
+  licenses            License[]
+  paymentTransactions PaymentTransaction[]
+  ssoDomains          OrganizationDomain[]
+
+  // Phase 4: Finance & Planning
+  invoices   Invoice[]
+  milestones Milestone[]
+
+  // Renewal OS: Customer & Renewal Management
+  customers         Customer[]
+  renewals          Renewal[]
+  commissionWallets CommissionWallet[]
+}
+
+model User {
+  id             String @id @default(cuid())
+  organizationId String
+  role           Role
+
+  fullName     String
+  email        String        @unique
+  passwordHash String
+  authSessions AuthSession[]
+
+  // hierarchy chain (optional but very useful)
+  reportsToId  String?
+  reportsTo    User?   @relation("UserReportsTo", fields: [reportsToId], references: [id])
+  subordinates User[]  @relation("UserReportsTo")
+
+  isActive Boolean    @default(true)
+  status   UserStatus @default(PENDING)
+
+  // KYC fields
+  phone       String?
+  dob         DateTime?
+  companyName String?
+
+  // Renewal OS: Account Manager specific fields
+  isAccountManager Boolean @default(false)
+  territory        String? // Sales territory
+  commissionTier   String? // Commission level (e.g., "TIER1", "TIER2")
+
+  // Security Question (for password reset)
+  securityQuestion String?
+  securityAnswer   String? // Store as hash
+  securityAnswerRehashed Boolean @default(false)
+
+  fcmToken          String?
+  externalReminders Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  attendances           Attendance[]
+  createdProjects       Project[]       @relation("ProjectCreatedBy")
+  headedProjects        Project[]       @relation("ProjectHead")
+  assignedAdminProjects Project[]       @relation("ProjectAssignedAdmin")
+  assignedEliteProjects Project[]       @relation("ProjectAssignedElite")
+  projectMembers        ProjectMember[]
+
+  tasksAssignedTo Task[] @relation("TaskAssignedTo")
+  tasksAssignedBy Task[] @relation("TaskAssignedBy")
+
+  submissions TaskSubmission[] @relation("SubmissionBy")
+  reviews     TaskSubmission[] @relation("SubmissionReviewedBy")
+
+  noticesCreated Notice[]     @relation("NoticeCreatedBy")
+  noticeViews    NoticeView[]
+
+  conversationMembers ConversationMember[]
+  messagesSent        Message[]
+
+  emergencyTriggered EmergencyEvent[] @relation("EmergencyTriggeredBy")
+  emergencyHandled   EmergencyEvent[] @relation("EmergencyHandledBy")
+
+  chatPermissionsAsAdmin ChatPermission[] @relation("ChatPermissionAdmin")
+  chatPermissionsAsElite ChatPermission[] @relation("ChatPermissionElite")
+
+  notifications Notification[]
+
+  // Telegram Bot
+  telegramLink TelegramLink?
+
+  // New feature relations
+  profile           UserProfile?
+  totpSecret        TOTPSecret?
+  pushSubscriptions PushSubscription[]
+  leaveRequests     LeaveRequest[]
+  uploadedDocuments Document[]
+  subTasksAssigned  SubTask[]          @relation("SubTaskAssignedTo")
+  subTasksCreated   SubTask[]          @relation("SubTaskCreatedBy")
+  taskComments      TaskComment[]
+  auditLogs         AuditLog[]
+  connectedAccounts ConnectedAccount[]
+
+  // Calendar & Recurring Tasks
+  calendarEventsCreated  CalendarEvent[]         @relation("CalendarEventCreatedBy")
+  calendarAttendances    CalendarEventAttendee[]
+  recurringTasksCreated  RecurringTask[]         @relation("RecurringTaskCreatedBy")
+  recurringTasksAssigned RecurringTask[]         @relation("RecurringTaskAssignedTo")
+
+  // Phase 2: HRM
+  leaveBalances      LeaveBalance[]
+  skills             UserSkill[]
+  onboardingProgress UserOnboardingProgress[]
+  objectives         Objective[]
+
+  // Phase 3: Asset & License Management
+  assetAllocations   AssetAllocation[]
+  licenseAssignments LicenseAssignment[]
+  managedAssets      Asset[]             @relation("AssetCustodian")
+
+  // Finance & Planning
+  invoicesCreated   Invoice[]   @relation("InvoiceCreatedBy")
+  milestonesCreated Milestone[] @relation("MilestoneCreatedBy")
+
+  // Renewal OS: Account Manager Relations
+  managedRenewals  Renewal[]        @relation("RenewalAccountManager")
+  commissionWallet CommissionWallet?
+
+  @@index([organizationId, role])
+  @@index([reportsToId])
+}
+
+model Project {
+  id             String @id @default(cuid())
+  organizationId String
+
+  name        String
+  description String?
+
+  createdById String
+  headId      String?
+
+  assignedAdminId String?
+  assignedEliteId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization  Organization @relation(fields: [organizationId], references: [id])
+  createdBy     User         @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+  head          User?        @relation("ProjectHead", fields: [headId], references: [id])
+  assignedAdmin User?        @relation("ProjectAssignedAdmin", fields: [assignedAdminId], references: [id])
+  assignedElite User?        @relation("ProjectAssignedElite", fields: [assignedEliteId], references: [id])
+
+  members       ProjectMember[]
+  tasks         Task[]
+  conversations Conversation[]
+  emergencies   EmergencyEvent[] // opposite relation for EmergencyEvent.project
+  notifications Notification[]
+
+  // Calendar & Recurring Tasks
+  calendarEvents CalendarEvent[]
+  recurringTasks RecurringTask[]
+
+  // Milestones
+  milestones Milestone[]
+
+  @@index([organizationId, createdAt])
+  @@index([headId])
+}
+
+model ProjectMember {
+  id        String            @id @default(cuid())
+  projectId String
+  userId    String
+  role      ProjectMemberRole @default(MEMBER)
+
+  joinedAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+model Attendance {
+  id     String   @id @default(cuid())
+  userId String
+  date   DateTime // store date at midnight UTC-ish, enforce unique per user/day
+
+  punchInAt  DateTime?
+  punchOutAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, date])
+  @@index([date])
+}
+
+model Task {
+  id        String @id @default(cuid())
+  projectId String
+
+  title       String
+  description String?
+  status      TaskStatus   @default(ASSIGNED)
+  priority    TaskPriority @default(NORMAL)
+
+  assignedToId String
+  assignedById String
+
+  dueAt          DateTime?
+  estimatedHours Float?
+
+  // For split tasks — references the original task
+  splitFromId String?
+  splitFrom   Task?   @relation("TaskSplits", fields: [splitFromId], references: [id])
+  splits      Task[]  @relation("TaskSplits")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project    Project @relation(fields: [projectId], references: [id])
+  assignedTo User    @relation("TaskAssignedTo", fields: [assignedToId], references: [id])
+  assignedBy User    @relation("TaskAssignedBy", fields: [assignedById], references: [id])
+
+  submissions   TaskSubmission[]
+  notifications Notification[]
+  subTasks      SubTask[]
+  comments      TaskComment[]
+
+  @@index([projectId, status])
+  @@index([assignedToId, status])
+  @@index([assignedById])
+  @@index([splitFromId])
+}
+
+model TaskSubmission {
+  id     String @id @default(cuid())
+  taskId String
+
+  submittedById String
+  notes         String?
+  status        SubmissionStatus @default(PENDING)
+
+  reviewedById  String?
+  reviewedAt    DateTime?
+  reviewComment String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task        Task  @relation(fields: [taskId], references: [id])
+  submittedBy User  @relation("SubmissionBy", fields: [submittedById], references: [id])
+  reviewedBy  User? @relation("SubmissionReviewedBy", fields: [reviewedById], references: [id])
+
+  proofs        SubmissionProof[]
+  notifications Notification[]
+
+  @@index([taskId, createdAt])
+  @@index([submittedById])
+  @@index([status])
+}
+
+model SubmissionProof {
+  id               String @id @default(cuid())
+  taskSubmissionId String
+
+  fileUrl   String
+  fileName  String?
+  mimeType  String?
+  sizeBytes Int?
+
+  createdAt DateTime @default(now())
+
+  taskSubmission TaskSubmission @relation(fields: [taskSubmissionId], references: [id])
+
+  @@index([taskSubmissionId])
+}
+
+model Notice {
+  id             String @id @default(cuid())
+  organizationId String
+  createdById    String
+
+  title     String
+  content   String
+  pinned    Boolean   @default(false)
+  expiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  createdBy    User         @relation("NoticeCreatedBy", fields: [createdById], references: [id])
+
+  views NoticeView[]
+
+  @@index([organizationId, createdAt])
+  @@index([pinned])
+}
+
+model NoticeView {
+  id       String   @id @default(cuid())
+  noticeId String
+  userId   String
+  seenAt   DateTime @default(now())
+
+  notice Notice @relation(fields: [noticeId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([noticeId, userId])
+  @@index([userId])
+}
+
+model Conversation {
+  id             String           @id @default(cuid())
+  organizationId String
+  type           ConversationType @default(DIRECT)
+
+  projectId String? // used when type=PROJECT
+  key       String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  project      Project?     @relation(fields: [projectId], references: [id])
+
+  members  ConversationMember[]
+  messages Message[]
+
+  @@index([organizationId, type])
+  @@index([projectId])
+}
+
+model ConversationMember {
+  id             String @id @default(cuid())
+  conversationId String
+  userId         String
+
+  joinedAt DateTime @default(now())
+
+  lastReadMessageId      String?
+  lastDeliveredMessageId String?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String @id @default(cuid())
+  conversationId String
+  senderId       String
+  body           String
+
+  // Soft-delete
+  deletedAt      DateTime?
+
+  // File sharing
+  fileUrl        String?
+  fileName       String?
+  fileType       String?
+
+  // Store IDs of @mentioned users
+  mentionedUserIds String[]
+
+  createdAt DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  sender       User         @relation(fields: [senderId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+model EmergencyEvent {
+  id             String  @id @default(cuid())
+  organizationId String
+  projectId      String?
+
+  triggeredById String
+  handledById   String?
+
+  status EmergencyStatus @default(ACTIVE)
+
+  reason      String?
+  triggeredAt DateTime  @default(now())
+  resolvedAt  DateTime?
+  cancelledAt DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  project      Project?     @relation(fields: [projectId], references: [id])
+
+  triggeredBy User  @relation("EmergencyTriggeredBy", fields: [triggeredById], references: [id])
+  handledBy   User? @relation("EmergencyHandledBy", fields: [handledById], references: [id])
+
+  @@index([organizationId, status])
+  @@index([projectId])
+  @@index([triggeredAt])
+}
+
+model AuthSession {
+  id     String @id @default(cuid())
+  userId String
+
+  refreshTokenHash String
+  expiresAt        DateTime
+  absoluteExp      DateTime
+
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  userAgent String?
+  ip        String?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+enum ChatPermissionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  BLOCKED
+}
+
+model ChatPermission {
+  id      String @id @default(cuid())
+  adminId String
+  eliteId String
+
+  status ChatPermissionStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  admin User @relation("ChatPermissionAdmin", fields: [adminId], references: [id])
+  elite User @relation("ChatPermissionElite", fields: [eliteId], references: [id])
+
+  @@unique([adminId, eliteId])
+  @@index([adminId, status])
+  @@index([eliteId])
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_SUBMITTED
+  TASK_REVIEWED
+  PROJECT_MEMBER_ADDED
+  MENTION
+  LEAVE_UPDATED
+  DOCUMENT_UPLOADED
+}
+
+enum TaskPriority {
+  URGENT
+  HIGH
+  NORMAL
+  LOW
+}
+
+enum LeaveType {
+  SICK
+  CASUAL
+  ANNUAL
+  UNPAID
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  USER_CREATED
+  USER_UPDATED
+  USER_DELETED
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  TASK_CREATED
+  TASK_STATUS_CHANGED
+  TASK_SPLIT
+  SUBMISSION_REVIEWED
+  EMERGENCY_TRIGGERED
+  EMERGENCY_RESOLVED
+  NOTICE_CREATED
+  LEAVE_UPDATED
+  DOCUMENT_UPLOADED
+  DOCUMENT_DELETED
+}
+
+model Notification {
+  id             String           @id @default(cuid())
+  organizationId String
+  userId         String // recipient
+  type           NotificationType
+
+  title   String
+  message String
+  read    Boolean @default(false)
+
+  // Optional references
+  taskId       String?
+  projectId    String?
+  submissionId String?
+
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  user         User            @relation(fields: [userId], references: [id])
+  task         Task?           @relation(fields: [taskId], references: [id])
+  project      Project?        @relation(fields: [projectId], references: [id])
+  submission   TaskSubmission? @relation(fields: [submissionId], references: [id])
+
+  @@index([userId, read, createdAt])
+  @@index([organizationId])
+  @@index([taskId])
+  @@index([projectId])
+}
+
+// ─────────────────────────────────────────────
+// NEW MODELS — Feature Expansion
+// ─────────────────────────────────────────────
+
+model UserProfile {
+  id         String    @id @default(cuid())
+  userId     String    @unique
+  department String?
+  phone      String?
+  avatarUrl  String?
+  joinDate   DateTime?
+  gender     Gender?   @default(PREFER_NOT_TO_SAY)
+  bio        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model TOTPSecret {
+  id       String  @id @default(cuid())
+  userId   String  @unique
+  secret   String
+  verified Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model TelegramLink {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  telegramChatId   String   @unique
+  telegramUsername String?
+  linkedAt         DateTime @default(now())
+  isActive         Boolean  @default(true)
+  lastSeenAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([telegramChatId])
+}
+
+model PushSubscription {
+  id       String @id @default(cuid())
+  userId   String
+  endpoint String @unique
+  p256dh   String
+  auth     String
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model LeaveRequest {
+  id     String @id @default(cuid())
+  userId String
+
+  type     LeaveType
+  fromDate DateTime
+  toDate   DateTime
+  reason   String?
+  status   LeaveStatus @default(PENDING)
+
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, status])
+  @@index([fromDate])
+}
+
+model Document {
+  id             String  @id @default(cuid())
+  organizationId String
+  uploadedById   String
+  projectId      String?
+
+  name          String
+  fileUrl       String
+  mimeType      String?
+  sizeBytes     Int?
+  description   String?
+  extractedText String?
+  aiSummary     String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  uploadedBy   User         @relation(fields: [uploadedById], references: [id])
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@index([uploadedById])
+}
+
+model SubTask {
+  id           String @id @default(cuid())
+  taskId       String
+  assignedToId String
+  createdById  String
+
+  title       String
+  description String?
+  status      TaskStatus @default(ASSIGNED)
+  dueAt       DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task       Task @relation(fields: [taskId], references: [id])
+  assignedTo User @relation("SubTaskAssignedTo", fields: [assignedToId], references: [id])
+  createdBy  User @relation("SubTaskCreatedBy", fields: [createdById], references: [id])
+
+  @@index([taskId])
+  @@index([assignedToId, status])
+}
+
+model TaskComment {
+  id     String @id @default(cuid())
+  taskId String
+  userId String
+
+  content          String
+  mentionedUserIds String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([taskId, createdAt])
+  @@index([userId])
+}
+
+model AuditLog {
+  id      String      @id @default(cuid())
+  actorId String?
+  action  AuditAction
+
+  targetModel String?
+  targetId    String?
+  metadata    Json?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// CALENDAR & RECURRING TASKS
+// ─────────────────────────────────────────────
+
+enum CalendarEventType {
+  MEETING
+  DEADLINE
+  HOLIDAY
+  REMINDER
+  EVENT
+}
+
+enum RecurrenceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+model CalendarEvent {
+  id             String  @id @default(cuid())
+  organizationId String
+  createdById    String
+  projectId      String?
+
+  title       String
+  description String?
+  type        CalendarEventType @default(EVENT)
+  color       String?           @default("#38BDF8")
+
+  startAt DateTime
+  endAt   DateTime?
+  allDay  Boolean   @default(false)
+
+  // Recurrence
+  isRecurring     Boolean              @default(false)
+  recurrenceFreq  RecurrenceFrequency?
+  recurrenceEndAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  createdBy    User         @relation("CalendarEventCreatedBy", fields: [createdById], references: [id])
+  project      Project?     @relation(fields: [projectId], references: [id])
+
+  attendees CalendarEventAttendee[]
+
+  @@index([organizationId, startAt])
+  @@index([createdById])
+  @@index([projectId])
+}
+
+model CalendarEventAttendee {
+  id      String @id @default(cuid())
+  eventId String
+  userId  String
+
+  event CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User          @relation(fields: [userId], references: [id])
+
+  @@unique([eventId, userId])
+  @@index([userId])
+}
+
+model RecurringTask {
+  id             String @id @default(cuid())
+  organizationId String
+  projectId      String
+  createdById    String
+  assignedToId   String
+
+  title       String
+  description String?
+  priority    TaskPriority        @default(NORMAL)
+  frequency   RecurrenceFrequency
+
+  nextDueAt DateTime
+  endAt     DateTime?
+  isActive  Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  project      Project      @relation(fields: [projectId], references: [id])
+  createdBy    User         @relation("RecurringTaskCreatedBy", fields: [createdById], references: [id])
+  assignedTo   User         @relation("RecurringTaskAssignedTo", fields: [assignedToId], references: [id])
+
+  @@index([organizationId, isActive])
+  @@index([assignedToId])
+  @@index([nextDueAt])
+}
+
+model ConnectedAccount {
+  id       String        @id @default(cuid())
+  userId   String
+  provider OAuthProvider
+  email    String
+
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime?
+  scope        String? // Space-separated list of scopes/permissions granted
+
+  // Provider-specific internal IDs (e.g. Google's sub or Microsoft's id)
+  providerUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider]) // one account per provider per user, or modify if multiple are allowed
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// PHASE 2: HRM COMPLETION
+// ─────────────────────────────────────────────
+
+model LeaveBalance {
+  id           String    @id @default(cuid())
+  userId       String
+  type         LeaveType
+  year         Int
+  totalAllowed Int       @default(0)
+  used         Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, year])
+}
+
+model Skill {
+  id             String  @id @default(cuid())
+  organizationId String
+  name           String
+  category       String?
+
+  createdAt DateTime @default(now())
+
+  userSkills UserSkill[]
+
+  @@unique([organizationId, name])
+}
+
+// Proficiency mapping (1-5 or similar)
+model UserSkill {
+  id               String @id @default(cuid())
+  userId           String
+  skillId          String
+  proficiencyLevel Int    @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skillId])
+}
+
+model OnboardingStep {
+  id              String  @id @default(cuid())
+  organizationId  String
+  title           String
+  description     String?
+  roleRequirement Role? // If null, applies to everyone
+
+  createdAt DateTime @default(now())
+
+  progress UserOnboardingProgress[]
+
+  @@index([organizationId])
+}
+
+model UserOnboardingProgress {
+  id          String    @id @default(cuid())
+  userId      String
+  stepId      String
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  step OnboardingStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, stepId])
+}
+
+enum ObjectiveStatus {
+  DRAFT
+  ACTIVE
+  IN_PROGRESS
+  ACHIEVED
+  MISSED
+}
+
+model Objective {
+  id          String          @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  quarter     Int // 1-4
+  year        Int
+  status      ObjectiveStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyResults KeyResult[]
+
+  @@index([userId, year, quarter])
+}
+
+model KeyResult {
+  id           String  @id @default(cuid())
+  objectiveId  String
+  title        String
+  targetValue  Float
+  currentValue Float   @default(0)
+  unit         String? // e.g. "%", "$", "tasks"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  objective Objective @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
+
+  @@index([objectiveId])
+}
+
+// ─────────────────────────────────────────────
+// PHASE 3: ASSET & LICENSE MANAGEMENT
+// ─────────────────────────────────────────────
+
+model Branch {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  location       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  departments  Department[]
+  assets       Asset[]
+
+  @@index([organizationId])
+}
+
+model Department {
+  id             String   @id @default(cuid())
+  organizationId String
+  branchId       String?
+  name           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch       Branch?      @relation(fields: [branchId], references: [id])
+  assets       Asset[]
+
+  @@index([organizationId])
+}
+
+model Category {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  type           String // "HARDWARE" or "SOFTWARE"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  subCategories SubCategory[]
+  assets        Asset[]
+  licenses      License[]
+
+  @@index([organizationId, type])
+}
+
+model SubCategory {
+  id         String   @id @default(cuid())
+  categoryId String
+  name       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  category Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  assets   Asset[]
+  licenses License[]
+
+  @@index([categoryId])
+}
+
+model Vendor {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  contactPerson  String?
+  email          String?
+  phone          String?
+  address        String?
+  taxNumber      String?
+  contractStart  DateTime?
+  contractEnd    DateTime?
+  paymentTerms   String?
+  bankingDetails String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assets       Asset[]
+  licenses     License[]
+  renewals     Renewal[]
+
+  @@index([organizationId])
+}
+
+enum AssetStatus {
+  ACTIVE
+  INACTIVE
+  REPAIR
+  DISPOSED
+}
+
+model Asset {
+  id             String  @id @default(cuid())
+  organizationId String
+  assetTag       String?
+  serialNumber   String?
+  name           String
+  brand          String?
+  model          String?
+  categoryId     String
+  subCategoryId  String?
+  vendorId       String?
+
+  purchaseDate  DateTime?
+  warrantyStart DateTime?
+  warrantyEnd   DateTime?
+  amcStart      DateTime?
+  amcEnd        DateTime?
+  invoiceNumber String?
+  purchaseCost  Float?
+  currentValue  Float?
+
+  // Renewal OS fields
+  doRef     String? // Delivery Order Reference
+  invoiceRef String? // Invoice Reference for renewals
+
+  branchId     String?
+  departmentId String?
+  custodianId  String?
+
+  status      AssetStatus @default(ACTIVE)
+  ipAddress   String?
+  macAddress  String?
+  osInstalled String?
+
+  assetCondition String?
+  disposalDate   DateTime?
+  disposalMethod String?
+  remarks        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category     Category     @relation(fields: [categoryId], references: [id])
+  subCategory  SubCategory? @relation(fields: [subCategoryId], references: [id])
+  vendor       Vendor?      @relation(fields: [vendorId], references: [id])
+  branch       Branch?      @relation(fields: [branchId], references: [id])
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  custodian    User?        @relation("AssetCustodian", fields: [custodianId], references: [id])
+
+  allocations AssetAllocation[]
+  maintenance MaintenanceRecord[]
+  renewals    Renewal[]
+
+  @@index([organizationId, status])
+  @@index([assetTag])
+}
+
+enum LicenseType {
+  SUBSCRIPTION
+  PERPETUAL
+}
+
+model License {
+  id             String      @id @default(cuid())
+  organizationId String
+  name           String
+  categoryId     String
+  subCategoryId  String?
+  version        String?
+  type           LicenseType @default(SUBSCRIPTION)
+  licenseKey     String?
+
+  numberOfSeats Int @default(1)
+  assignedSeats Int @default(0)
+
+  startDate   DateTime?
+  endDate     DateTime?
+  renewalType String? // "AUTO" or "MANUAL"
+  vendorId    String?
+
+  invoiceNumber    String?
+  paymentAmount    Float?
+  currency         String? @default("USD")
+  paymentFrequency String?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category     Category     @relation(fields: [categoryId], references: [id])
+  subCategory  SubCategory? @relation(fields: [subCategoryId], references: [id])
+  vendor       Vendor?      @relation(fields: [vendorId], references: [id])
+
+  assignments LicenseAssignment[]
+
+  @@index([organizationId])
+}
+
+model AssetAllocation {
+  id          String    @id @default(cuid())
+  assetId     String
+  userId      String
+  allocatedAt DateTime  @default(now())
+  returnedAt  DateTime?
+  remarks     String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+  @@index([userId])
+}
+
+model LicenseAssignment {
+  id         String    @id @default(cuid())
+  licenseId  String
+  userId     String
+  deviceId   String? // Reference to Asset ID if linked to a specific device
+  assignedAt DateTime  @default(now())
+  revokedAt  DateTime?
+  remarks    String?
+
+  license License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([licenseId])
+  @@index([userId])
+}
+
+model PaymentTransaction {
+  id             String   @id @default(cuid())
+  organizationId String
+  invoiceNumber  String?
+  poNumber       String?
+  paymentDate    DateTime
+  amount         Float
+  currency       String   @default("USD")
+  taxAmount      Float?
+  paymentMethod  String?
+  status         String   @default("PAID") // "PAID", "PENDING"
+
+  // Polymorphic reference to License or Asset
+  referenceType String? // "LICENSE" or "ASSET"
+  referenceId   String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, paymentDate])
+}
+
+model MaintenanceRecord {
+  id              String    @id @default(cuid())
+  assetId         String
+  maintenanceDate DateTime
+  description     String
+  cost            Float?
+  performedBy     String?
+  nextDueDate     DateTime?
+
+  createdAt DateTime @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+}
+
+model ComplianceLog {
+  id             String @id @default(cuid())
+  organizationId String
+  eventType      String // "VIOLATION", "AUDIT"
+  description    String
+  severity       String // "LOW", "MEDIUM", "HIGH"
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, eventType])
+}
+
+model OrganizationDomain {
+  id             String       @id @default(cuid())
+  organizationId String
+  domain         String       @unique // e.g. "yourcompany.com"
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENEWAL OS: Customer 360 & Renewal Management
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Customer {
+  id             String @id @default(cuid())
+  organizationId String
+  name           String
+  email          String?
+  phone          String?
+  address        String?
+  city           String?
+  country        String?
+  gstNumber      String?
+  panNumber      String?
+
+  // Health & Risk
+  healthScore    Int              @default(50) // 0-100 score
+  churnRisk      ChurnRiskLevel   @default(LOW)
+  paymentHistory String? // JSON serialized payment history
+
+  // Relations
+  contacts   CustomerContact[]
+  renewals   Renewal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, name])
+  @@index([organizationId, healthScore])
+  @@index([organizationId, churnRisk])
+}
+
+model CustomerContact {
+  id         String @id @default(cuid())
+  customerId String
+  name       String
+  email      String?
+  phone      String?
+  department String? // IT, Finance, HR, Operations, etc.
+  title      String?
+  isPrimary  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model Renewal {
+  id             String @id @default(cuid())
+  organizationId String
+  customerId     String
+  assetId        String?
+  amId           String
+  vendorId       String
+
+  // Core renewal details
+  renewalDate      DateTime
+  expiryDate       DateTime
+  cycleStartDate   DateTime
+  renewalType      String? // e.g., "AMC", "License", "Subscription"
+
+  // Pricing & Economics
+  renewalCost      Float
+  margin           Float @default(0)
+  marginPercent    Float @default(0)
+
+  // References (for reseller traceability)
+  doRef            String? // Delivery Order Reference
+  invoiceRef       String? // Invoice Reference
+  customerPORef    String? // Customer PO Reference
+
+  // Workflow Status (11-stage engine)
+  status           RenewalStatus @default(DRAFT)
+
+  // AI Scoring
+  renewalLikelihood Int              @default(50) // 0-100 ML score
+  churnRisk         ChurnRiskLevel   @default(LOW)
+  upsellPotential   Float            @default(0) // Rupees value
+
+  // Payment Status
+  paymentStatus    PaymentStatus @default(PENDING)
+  paidAmount       Float?
+  paymentDate      DateTime?
+
+  // Outreach & Communication
+  reminderCadence  ReminderCadence @default(BALANCED)
+  lastOutreach     DateTime?
+  nextAction       String? // Next recommended action
+  quoteSent        Boolean @default(false)
+  quoteSentDate    DateTime?
+
+  // Customer Response
+  notes            String? // General notes/feedback
+  discountRequested Float? // Requested discount %
+  discountApproved Float? // Approved discount %
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  asset        Asset?       @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  accountManager User        @relation("RenewalAccountManager", fields: [amId], references: [id], onDelete: Restrict)
+  vendor       Vendor       @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  commissions  CommissionEvent[]
+
+  @@index([organizationId, customerId, status])
+  @@index([organizationId, amId])
+  @@index([organizationId, renewalDate])
+  @@index([organizationId, churnRisk])
+  @@index([organizationId, paymentStatus])
+}
+
+model CommissionWallet {
+  id                String @id @default(cuid())
+  organizationId    String
+  userId            String @unique
+  balance           Float  @default(0)
+  totalEarned       Float  @default(0)
+  totalPaid         Float  @default(0)
+  lastPayout        DateTime?
+  payoutSchedule    String @default("MONTHLY") // WEEKLY, MONTHLY, QUARTERLY
+  bankAccount       String? // Encrypted bank details
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  commissionEvents   CommissionEvent[]
+
+  @@index([organizationId, userId])
+}
+
+model CommissionEvent {
+  id         String @id @default(cuid())
+  walletId   String
+  renewalId  String
+  amount     Float
+  percentage Float? // Commission percentage
+  status     CommissionStatus @default(ACCRUED)
+
+  createdAt DateTime @default(now())
+  paidDate  DateTime?
+
+  // Relations
+  wallet  CommissionWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  renewal Renewal          @relation(fields: [renewalId], references: [id], onDelete: Cascade)
+
+  @@index([walletId, renewalId])
+  @@index([walletId, status])
+}
